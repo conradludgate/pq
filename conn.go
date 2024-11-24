@@ -170,6 +170,9 @@ type conn struct {
 
 	// GSSAPI context
 	gss GSS
+
+	// channel binding data used for SCRAM-SHA-256-PLUS
+	tlsServerEndPoint []byte
 }
 
 type syncErr struct {
@@ -1129,7 +1132,18 @@ func (cn *conn) ssl(o values) error {
 		return ErrSSLNotSupported
 	}
 
-	cn.c, err = upgrade(cn.c)
+	conn, err := upgrade(cn.c)
+	if err != nil {
+		return err
+	}
+
+	cb, err := tlsServerEndPoint(conn)
+	if err != nil {
+		return err
+	}
+
+	cn.c = conn
+	cn.tlsServerEndPoint = cb
 	return err
 }
 
@@ -1289,7 +1303,37 @@ func (cn *conn) auth(r *readBuf, o values) {
 		// from the server..
 
 	case 10:
+		supported := r.strings()
+
+		scramSha256 := false
+		scramSha256Plus := false
+		for _, s := range supported {
+			switch s {
+			case "SCRAM-SHA-256":
+				scramSha256 = true
+			case "SCRAM-SHA-256-PLUS":
+				scramSha256Plus = true
+			}
+		}
+
 		sc := scram.NewClient(sha256.New, o["user"], o["password"])
+
+		// channel binding is supported by the client
+		if cn.tlsServerEndPoint != nil {
+			sc.WithTlsServerEndPoint(cn.tlsServerEndPoint)
+		}
+
+		var selected string
+		// SCRAM-SHA-256-PLUS always takes preference.
+		if cn.tlsServerEndPoint != nil && scramSha256Plus {
+			sc.UseChannelBinding()
+			selected = "SCRAM-SHA-256-PLUS"
+		} else if scramSha256 {
+			selected = "SCRAM-SHA-256"
+		} else {
+			errorf("SCRAM-SHA-256 protocol error")
+		}
+
 		sc.Step(nil)
 		if sc.Err() != nil {
 			errorf("SCRAM-SHA-256 error: %s", sc.Err().Error())
@@ -1297,7 +1341,7 @@ func (cn *conn) auth(r *readBuf, o values) {
 		scOut := sc.Out()
 
 		w := cn.writeBuf('p')
-		w.string("SCRAM-SHA-256")
+		w.string(selected)
 		w.int32(len(scOut))
 		w.bytes(scOut)
 		cn.send(w)
