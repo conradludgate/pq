@@ -1223,8 +1223,16 @@ func (cn *conn) startup(o values) {
 func (cn *conn) auth(r *readBuf, o values) {
 	switch code := r.int32(); code {
 	case 0:
+		if o["channel_binding"] == "required" {
+			errorf("SCRAM-SHA-256 protocol error: channel binding required")
+		}
+
 		// OK
 	case 3:
+		if o["channel_binding"] == "required" {
+			errorf("SCRAM-SHA-256 protocol error: channel binding required")
+		}
+
 		w := cn.writeBuf('p')
 		w.string(o["password"])
 		cn.send(w)
@@ -1238,6 +1246,10 @@ func (cn *conn) auth(r *readBuf, o values) {
 			errorf("unexpected authentication response: %q", t)
 		}
 	case 5:
+		if o["channel_binding"] == "required" {
+			errorf("SCRAM-SHA-256 protocol error: channel binding required")
+		}
+
 		s := string(r.next(4))
 		w := cn.writeBuf('p')
 		w.string("md5" + md5s(md5s(o["password"]+o["user"])+s))
@@ -1252,6 +1264,10 @@ func (cn *conn) auth(r *readBuf, o values) {
 			errorf("unexpected authentication response: %q", t)
 		}
 	case 7: // GSSAPI, startup
+		if o["channel_binding"] == "required" {
+			errorf("SCRAM-SHA-256 protocol error: channel binding required")
+		}
+
 		if newGss == nil {
 			errorf("kerberos error: no GSSAPI provider registered (import github.com/lib/pq/auth/kerberos if you need Kerberos support)")
 		}
@@ -1287,6 +1303,9 @@ func (cn *conn) auth(r *readBuf, o values) {
 		cn.gss = cli
 
 	case 8: // GSSAPI continue
+		if o["channel_binding"] == "required" {
+			errorf("SCRAM-SHA-256 protocol error: channel binding required")
+		}
 
 		if cn.gss == nil {
 			errorf("GSSAPI protocol error")
